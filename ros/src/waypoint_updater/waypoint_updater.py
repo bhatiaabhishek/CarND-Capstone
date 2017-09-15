@@ -25,7 +25,7 @@ TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
 
 TARGET_SPEED = 15
-
+SAMPLE_RATE = 50
 class WaypointUpdater(object):
     def __init__(self):
         rospy.init_node('waypoint_updater')
@@ -62,17 +62,20 @@ class WaypointUpdater(object):
         if self.car_yaw is None:
             return
 
-        closestWaypoint = self.get_closest_waypoint(msg.waypoints)
-        lenWaypoints = len(msg.waypoints)
-        final_waypoints_msg = Lane()
-        for i in range(LOOKAHEAD_WPS):
-            wp = msg.waypoints[(closestWaypoint + i) % lenWaypoints]
-            new_final_wp = Waypoint()
-            new_final_wp.pose = wp.pose
-            #currently using constant speed to get car moving
-            new_final_wp.twist.twist.linear.x = TARGET_SPEED
-            final_waypoints_msg.waypoints.append(new_final_wp)
-        self.final_waypoints_pub.publish(final_waypoints_msg)
+        rate = rospy.Rate(SAMPLE_RATE) # 50Hz
+        while not rospy.is_shutdown():
+            closestWaypoint = self.get_closest_waypoint(msg.waypoints)
+            lenWaypoints = len(msg.waypoints)
+            final_waypoints_msg = Lane()
+            for i in range(LOOKAHEAD_WPS):
+                wp = msg.waypoints[(closestWaypoint + i) % lenWaypoints]
+                new_final_wp = Waypoint()
+                new_final_wp.pose = wp.pose
+                #currently using constant speed to get car moving
+                new_final_wp.twist.twist.linear.x = TARGET_SPEED
+                final_waypoints_msg.waypoints.append(new_final_wp)
+            self.final_waypoints_pub.publish(final_waypoints_msg)
+            rate.sleep()
 
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
