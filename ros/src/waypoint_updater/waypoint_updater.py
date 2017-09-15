@@ -31,7 +31,7 @@ class WaypointUpdater(object):
         rospy.init_node('waypoint_updater')
 
         rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
-        rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
+        self.base_wp_sub = rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
 
         # TODO: Add a subscriber for /traffic_waypoint and /obstacle_waypoint below
 
@@ -45,6 +45,8 @@ class WaypointUpdater(object):
         self.car_y = None
         self.car_yaw = None
         self.car_pose = None
+        self.first_waypoint = None
+        self.base_waypoints = None
 
         self.tl_X = None # closest traffic light X
         self.tl_Y = None # closest traffic light Y
@@ -66,26 +68,34 @@ class WaypointUpdater(object):
                         msg.pose.orientation.w]
         euler = tf.transformations.euler_from_quaternion(quaternion)
         self.car_yaw = euler[2]
+        self.publishFinalWaypoints()
 
-    def waypoints_cb(self, msg):
-        # TODO: Implement
-        if self.car_yaw is None:
+    def publishFinalWaypoints(self):
+        #if not received base_waypoints message, not able to update final_waypoints
+        if self.base_waypoints is None:
             return
-
-        rate = rospy.Rate(SAMPLE_RATE) # 50Hz
-        while not rospy.is_shutdown():
-            closestWaypoint = self.get_closest_waypoint(msg.waypoints)
-            lenWaypoints = len(msg.waypoints)
+        #checking if closest waypoint is not the same as from the last final_waypoints update
+        #then publishing updated final_waypoints message
+        closestWaypoint = self.get_closest_waypoint()
+        if self.first_waypoint != closestWaypoint:
+            #updating final_waypoints
+            self.first_waypoint = closestWaypoint
+            lenWaypoints = len(self.base_waypoints)
             final_waypoints_msg = Lane()
             for i in range(LOOKAHEAD_WPS):
-                wp = msg.waypoints[(closestWaypoint + i) % lenWaypoints]
+                wp = self.base_waypoints[(closestWaypoint + i) % lenWaypoints]
                 new_final_wp = Waypoint()
                 new_final_wp.pose = wp.pose
                 #currently using constant speed to get car moving
                 new_final_wp.twist.twist.linear.x = self.target_velo
                 final_waypoints_msg.waypoints.append(new_final_wp)
             self.final_waypoints_pub.publish(final_waypoints_msg)
-            rate.sleep()
+
+    def waypoints_cb(self, msg):
+        #updating base_waypoints
+        if self.base_waypoints is None:
+            self.base_waypoints = msg.waypoints
+            self.base_wp_sub.unregister()
 
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
@@ -115,25 +125,25 @@ class WaypointUpdater(object):
             wp1 = i
         return dist
 
-    def get_closest_waypoint(self, waypoints):
+    def get_closest_waypoint(self):
         closestLen = 100000
         closestWaypoint = 0
-        for i in range(len(waypoints)):
-            wp = waypoints[i]
+        for i in range(len(self.base_waypoints)):
+            wp = self.base_waypoints[i]
             dist = math.sqrt((self.car_x - wp.pose.pose.position.x)**2
                                 + (self.car_y - wp.pose.pose.position.y)**2)
             if dist < closestLen:
                 closestLen = dist
                 closestWaypoint = i
 
-        closest_wp = waypoints[closestWaypoint]
+        closest_wp = self.base_waypoints[closestWaypoint]
         heading = math.atan2(wp.pose.pose.position.y - self.car_y,
                                 wp.pose.pose.position.x - self.car_x)
         angle = abs(self.car_yaw - heading)
         if (angle > math.pi/4):
             closestWaypoint += 1
+            closestWaypoint %= len(self.base_waypoints)
         return closestWaypoint
-
 
     def dist(self, p1, p2):
         return math.sqrt(pow(p1.x-p2.x,2) + pow(p1.y-p2.y,2))
