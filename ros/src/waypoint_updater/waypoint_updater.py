@@ -2,7 +2,7 @@
 
 import rospy
 from geometry_msgs.msg import PoseStamped
-from styx_msgs.msg import Lane, Waypoint
+from styx_msgs.msg import Lane, Waypoint, TrafficLightArray
 
 import math
 import tf
@@ -37,17 +37,27 @@ class WaypointUpdater(object):
 
 
         self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
+        # Subscribe to ground truth traffic light array for development
+        rospy.Subscriber('/vehicle/traffic_lights', TrafficLightArray, self.traffic_cb)
 
         # TODO: Add other member variables you need below
         self.car_x = None
         self.car_y = None
         self.car_yaw = None
+        self.car_pose = None
+
+        self.tl_X = None # closest traffic light X
+        self.tl_Y = None # closest traffic light Y
+        self.tl_S = None # closest traffic light state
+
+        self.target_velo = TARGET_SPEED
 
         rospy.spin()
 
     def pose_cb(self, msg):
         self.car_x = msg.pose.position.x
         self.car_y = msg.pose.position.y
+        self.car_pose = msg.pose
         #need to know euler yaw angle for car orientation relative to waypoints
         #for quaternion transformation using https://answers.ros.org/question/69754/quaternion-transformations-in-python/
         quaternion = [msg.pose.orientation.x,
@@ -72,13 +82,19 @@ class WaypointUpdater(object):
                 new_final_wp = Waypoint()
                 new_final_wp.pose = wp.pose
                 #currently using constant speed to get car moving
-                new_final_wp.twist.twist.linear.x = TARGET_SPEED
+                new_final_wp.twist.twist.linear.x = self.target_velo
                 final_waypoints_msg.waypoints.append(new_final_wp)
             self.final_waypoints_pub.publish(final_waypoints_msg)
             rate.sleep()
 
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
+        #if self.car_x is not None:
+        #    closest_tl = self.get_closest_waypoint(msg.lights)
+        #    if (msg.lights[closest_tl].state == 0) and (self.dist(self.car_pose.position, msg.lights[closest_tl].pose.pose.position) < 100):
+        #        self.target_velo = 0
+        #    else:
+        #        self.target_velo = 15
         pass
 
     def obstacle_cb(self, msg):
@@ -117,6 +133,10 @@ class WaypointUpdater(object):
         if (angle > math.pi/4):
             closestWaypoint += 1
         return closestWaypoint
+
+
+    def dist(self, p1, p2):
+        return math.sqrt(pow(p1.x-p2.x,2) + pow(p1.y-p2.y,2))
 
 if __name__ == '__main__':
     try:
