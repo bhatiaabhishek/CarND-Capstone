@@ -3,6 +3,7 @@
 import rospy
 from geometry_msgs.msg import PoseStamped
 from styx_msgs.msg import Lane, Waypoint, TrafficLightArray
+from geometry_msgs.msg import TwistStamped
 
 import math
 import tf
@@ -26,14 +27,15 @@ LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this n
 
 TARGET_SPEED = 5
 SAMPLE_RATE = 50
-ENABLE_TL = 0
+ENABLE_TL = 1
 class WaypointUpdater(object):
     def __init__(self):
         rospy.init_node('waypoint_updater')
-        if ENABLE_TL:
-            rospy.Subscriber('/vehicle/traffic_lights', TrafficLightArray, self.traffic_cb, queue_size=10)
+        rospy.Subscriber('/vehicle/traffic_lights', TrafficLightArray, self.traffic_cb, queue_size=10)
         rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb, queue_size=1)
         self.base_wp_sub = rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
+
+        rospy.Subscriber('/current_velocity', TwistStamped, self.current_velocity_cb)
 
         # TODO: Add a subscriber for /traffic_waypoint and /obstacle_waypoint below
 
@@ -46,6 +48,7 @@ class WaypointUpdater(object):
         self.car_y = None
         self.car_yaw = None
         self.car_pose = None
+        self.car_velo = None
         self.first_waypoint = None
         self.base_waypoints = None
 
@@ -91,7 +94,7 @@ class WaypointUpdater(object):
                 new_final_wp = Waypoint()
                 new_final_wp.pose = wp.pose
                 #currently using constant speed to get car moving
-                new_final_wp.twist.twist.linear.x = self.target_velo
+                new_final_wp.twist.twist.linear.x = self.car_velo + (((self.target_velo - self.car_velo)/LOOKAHEAD_WPS)*(i+1))
                 final_waypoints_msg.waypoints.append(new_final_wp)
             
             if ENABLE_TL: final_waypoints_msg = self.calc_tl(final_waypoints_msg, closestWaypoint)
@@ -200,8 +203,12 @@ class WaypointUpdater(object):
     def dist(self, p1, p2):
         return math.sqrt(pow(p1.x-p2.x,2) + pow(p1.y-p2.y,2))
 
+    def current_velocity_cb(self, msg):
+        self.car_velo = msg.twist.linear.x
+
 if __name__ == '__main__':
     try:
         WaypointUpdater()
     except rospy.ROSInterruptException:
         rospy.logerr('Could not start waypoint updater node.')
+
