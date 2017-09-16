@@ -164,7 +164,7 @@ class TLDetector(object):
             int: ID of traffic light color (specified in styx_msgs/TrafficLight)
 
         """
-        if(not self.has_image):
+        if not self.has_image:
             self.prev_light_loc = None
             return False
 
@@ -175,7 +175,8 @@ class TLDetector(object):
         #TODO use light location to zoom in on traffic light in image
 
         #Get classification
-        return self.light_classifier.get_classification(cv_image)
+        #return self.light_classifier.get_classification(cv_image)
+        return light.state
 
     def process_traffic_lights(self):
         """Finds closest visible traffic light, if one exists, and determines its
@@ -187,6 +188,7 @@ class TLDetector(object):
 
         """
 
+        # TODO (For Jared) make this only look for lights in front of you
         if not (self.pose and self.lights and self.waypoints):
            return -1, TrafficLight.UNKNOWN
 
@@ -211,7 +213,7 @@ class TLDetector(object):
 
         # Find closest waypoint to the above light
         light_wp_index = self.get_closest_waypoint(closest_light.pose.pose)            
-            
+
         light_state = self.get_light_state(light)
         return light_wp_index, light_state
 
