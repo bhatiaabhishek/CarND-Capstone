@@ -7,6 +7,7 @@ from geometry_msgs.msg import TwistStamped
 
 import math
 import tf
+import numpy as np
 
 '''
 This node will publish waypoints from the car's current position to some `x` distance ahead.
@@ -51,9 +52,10 @@ class WaypointUpdater(object):
         self.car_velo = None
         self.first_waypoint = None
         self.base_waypoints = None
+        self.base_waypoints_np = None
 
 
-        self.tl_list = None # list of all traffic lights 
+        self.tl_list = None # list of all traffic lights
         self.tl_X = None # closest traffic light X
         self.tl_Y = None # closest traffic light Y
         self.tl_S = None # closest traffic light state
@@ -96,7 +98,7 @@ class WaypointUpdater(object):
                 #currently using constant speed to get car moving
                 new_final_wp.twist.twist.linear.x = self.car_velo + (((self.target_velo - self.car_velo)/LOOKAHEAD_WPS)*(i+1))
                 final_waypoints_msg.waypoints.append(new_final_wp)
-            
+
             if ENABLE_TL: final_waypoints_msg = self.calc_tl(final_waypoints_msg, closestWaypoint)
             self.final_waypoints_pub.publish(final_waypoints_msg)
 
@@ -105,6 +107,8 @@ class WaypointUpdater(object):
         if self.base_waypoints is None:
             rospy.loginfo("rcvd base waypoints")
             self.base_waypoints = msg.waypoints
+            #creating numpy arrya which contains only x & y coordinates
+            self.base_waypoints_np = np.array([[msg.waypoints[j].pose.pose.position.x, msg.waypoints[j].pose.pose.position.y] for j in range(len(msg.waypoints))])
             self.base_wp_sub.unregister()
 
 
@@ -136,19 +140,12 @@ class WaypointUpdater(object):
         return dist
 
     def get_closest_waypoint(self, X, Y):
-        closestLen = 100000
-        closestWaypoint = 0
-        for i in range(len(self.base_waypoints)):
-            wp = self.base_waypoints[i]
-            dist = math.sqrt((X - wp.pose.pose.position.x)**2
-                                + (Y - wp.pose.pose.position.y)**2)
-            if dist < closestLen:
-                closestLen = dist
-                closestWaypoint = i
-
-        closest_wp = self.base_waypoints[closestWaypoint]
-        heading = math.atan2(wp.pose.pose.position.y - Y,
-                                wp.pose.pose.position.x - X)
+        deltas = self.base_waypoints_np - [X, Y]
+        dist_2 = np.einsum('ij,ij->i', deltas, deltas)
+        closestWaypoint = np.argmin(dist_2)
+        closest_wp = self.base_waypoints_np[closestWaypoint]
+        heading = math.atan2(closest_wp[1] - Y,
+                                closest_wp[0] - X)
         angle = abs(self.car_yaw - heading)
         if (angle > math.pi/4):
             closestWaypoint += 1
@@ -181,15 +178,15 @@ class WaypointUpdater(object):
         self.tl_X = closest_tl.pose.pose.position.x
         self.tl_S = closest_tl.state
         return closestTL
-    
+
     def calc_tl(self, final_waypoints_msg, car_closest_wp):
         if self.car_x is not None and self.tl_list is not None:
             closest_tl = self.get_closest_tl()
             closestWaypoint = self.get_closest_waypoint(self.tl_X, self.tl_Y)
-            rospy.loginfo("tl_x = %s, tl_y = %s", self.tl_X, self.tl_Y) 
-            rospy.loginfo("state = %s of TL %s", self.tl_S, closest_tl) 
+            rospy.loginfo("tl_x = %s, tl_y = %s", self.tl_X, self.tl_Y)
+            rospy.loginfo("state = %s of TL %s", self.tl_S, closest_tl)
             rospy.loginfo("I am at X = %s, Y = %s", self.car_x, self.car_y)
-            dist = self.distance(self.base_waypoints, car_closest_wp, closestWaypoint)          
+            dist = self.distance(self.base_waypoints, car_closest_wp, closestWaypoint)
             rospy.loginfo("closest visible tl at %s distance", dist)
             if (self.tl_S == 0) and (dist < 40):
                 for i in range(len(final_waypoints_msg.waypoints)):
@@ -199,7 +196,7 @@ class WaypointUpdater(object):
                 rospy.loginfo("setting target velo back to normal")
                 self.target_velo = TARGET_SPEED
         return final_waypoints_msg
-                
+
     def dist(self, p1, p2):
         return math.sqrt(pow(p1.x-p2.x,2) + pow(p1.y-p2.y,2))
 
@@ -211,4 +208,3 @@ if __name__ == '__main__':
         WaypointUpdater()
     except rospy.ROSInterruptException:
         rospy.logerr('Could not start waypoint updater node.')
-
