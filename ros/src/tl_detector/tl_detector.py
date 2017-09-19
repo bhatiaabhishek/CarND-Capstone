@@ -10,6 +10,7 @@ from light_classification.tl_classifier import TLClassifier
 import tf
 import cv2
 import yaml
+import math
 
 STATE_COUNT_THRESHOLD = 3
 
@@ -194,22 +195,35 @@ class TLDetector(object):
 
         light_positions = self.config['light_positions']
 
-        # Find closest waypoint to us
-        closest_wp_index = self.get_closest_waypoint(self.pose.pose)
-        closest_wp = self.waypoints.waypoints[closest_wp_index]
-        closest_wp_x = closest_wp.pose.pose.position.x
-        closest_wp_y = closest_wp.pose.pose.position.y
-
+        orientation_quaternion = tuple(getattr(self.pose.pose.orientation, i) for i in ('x', 'y', 'z', 'w'))
+        _, _, theta = tf.transformations.euler_from_quaternion(orientation_quaternion)
+      
+        car_x = self.pose.pose.position.x
+        car_y = self.pose.pose.position.y
+     
         # Find closest light to the above waypoint
         closest_light = None
         closest_light_distance = float('inf')
         for light in self.lights:
             light_x = light.pose.pose.position.x
             light_y = light.pose.pose.position.y
-            distance = (light_x - closest_wp_x)**2 + (light_y - closest_wp_y)**2
-            if distance < closest_light_distance:
+            dist_x = car_x - light_x
+            dist_y = car_y - light_y
+
+            distance = (dist_x)**2 + (dist_y)**2
+            
+            
+            dist_x_direct = -dist_x * math.cos(theta) - dist_y * math.sin(theta)
+            path_offset = -dist_x * math.sin(theta) + dist_y * math.cos(theta) 
+          
+            if dist_x_direct > 0 and abs(path_offset) < 100 and distance < closest_light_distance:
                 closest_light_distance = distance
                 closest_light = light
+
+
+
+        if closest_light is None:
+            return -1, TrafficLight.UNKNOWN
 
         # Find closest waypoint to the above light
         light_wp_index = self.get_closest_waypoint(closest_light.pose.pose)            
