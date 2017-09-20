@@ -37,7 +37,10 @@ class Controller(object):
         # Only update pid controller if Drive By Wire is enabled
         if dbw_enabled:
             throttle_error = target_linear_velocity - current_linear_velocity
-            throttle = self.throttle_pid.step(throttle_error, sample_time)
+            if throttle_error < 0.:
+                brake = 20000.
+            else:
+                throttle = self.throttle_pid.step(throttle_error, sample_time)
         else:
             self.throttle_pid.reset()
 
