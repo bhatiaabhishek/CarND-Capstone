@@ -169,14 +169,14 @@ class TLDetector(object):
             self.prev_light_loc = None
             return False
 
-        # cv_image = self.bridge.imgmsg_to_cv2(self.camera_image, "bgr8")
+        cv_image = self.bridge.imgmsg_to_cv2(self.camera_image, "bgr8")
 
         # x, y = self.project_to_image_plane(light.pose.pose.position)
 
         #TODO use light location to zoom in on traffic light in image
 
         #Get classification
-        #return self.light_classifier.get_classification(cv_image)
+        classification = self.light_classifier.get_classification(cv_image)
         return light.state
 
     def process_traffic_lights(self):
@@ -196,8 +196,6 @@ class TLDetector(object):
         # TODO (For Jared) make this only look for lights in front of you
         if not (self.pose and self.lights and self.waypoints):
            return -1, TrafficLight.UNKNOWN
-
-        light_positions = self.config['light_positions']
 
         orientation_quaternion = tuple(getattr(self.pose.pose.orientation, i) for i in ('x', 'y', 'z', 'w'))
         _, _, theta = tf.transformations.euler_from_quaternion(orientation_quaternion)
