@@ -16,8 +16,8 @@ class Controller(object):
     def __init__(self, ego, **kwargs):
         self.ego = ego
         self.throttle_pid = pid.PID(THROTTLE_P_VAL, THROTTLE_I_VAL,
-                                    THROTTLE_D_VAL, mn=MIN_LINEAR_VELOCITY,
-                                    mx=MAX_LINEAR_VELOCITY)
+                                    THROTTLE_D_VAL, mn=self.ego.decel_limit,
+                                    mx=self.ego.accel_limit)
 
         self.yaw_controller = yaw_controller.YawController(self.ego.wheel_base, self.ego.steer_ratio, self.ego.min_speed, self.ego.max_lat_accel, self.ego.max_steer_angle)
 
@@ -33,8 +33,12 @@ class Controller(object):
 
         # Only update pid controller if Drive By Wire is enabled
         if dbw_enabled:
-            throttle_error = target_linear_velocity - current_linear_velocity
-            throttle = self.throttle_pid.step(throttle_error, sample_time)
+            velocity_error = target_linear_velocity - current_linear_velocity
+            velocity_cmd = self.throttle_pid.step(velocity_error, sample_time)
+            if velocity_error >= 0.:
+                throttle = velocity_cmd
+            elif velocity_error <= -self.ego.brake_deadband:
+                brake = -velocity_cmd * self.ego.vehicle_mass * self.ego.wheel_radius
         else:
             self.throttle_pid.reset()
 
