@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 import rospy
 from std_msgs.msg import Int32
-from geometry_msgs.msg import PoseStamped, Pose
-from styx_msgs.msg import TrafficLightArray, TrafficLight
+from geometry_msgs.msg import PoseStamped, Pose, Point
+from styx_msgs.msg import TrafficLightArray, TrafficLight, Intersection
 from styx_msgs.msg import Lane
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
@@ -39,7 +39,7 @@ class TLDetector(object):
         config_string = rospy.get_param("/traffic_light_config")
         self.config = yaml.load(config_string)
 
-        self.upcoming_red_light_pub = rospy.Publisher('/traffic_waypoint', Int32, queue_size=1)
+        self.upcoming_red_light_pub = rospy.Publisher('/traffic_waypoint', Intersection, queue_size=1)
 
         self.bridge = CvBridge()
         self.light_classifier = TLClassifier()
@@ -47,7 +47,8 @@ class TLDetector(object):
 
         self.state = TrafficLight.UNKNOWN
         self.last_state = TrafficLight.UNKNOWN
-        self.last_wp = -1
+        self.intersection = None
+        self.last_intersection = None
         self.state_count = 0
 
         rospy.spin()
@@ -71,7 +72,10 @@ class TLDetector(object):
         """
         self.has_image = True
         self.camera_image = msg
-        light_wp, state = self.process_traffic_lights()
+        intersection = self.process_traffic_lights()
+        if intersection is None:
+            return
+        state = intersection.next_light_detection
 
         '''
         Publish upcoming red lights at camera frequency.
@@ -82,16 +86,19 @@ class TLDetector(object):
         if self.state != state:
             self.state_count = 0
             self.state = state
+            self.intersection = intersection
         elif self.state_count >= STATE_COUNT_THRESHOLD:
             self.last_state = self.state
-            light_wp = light_wp if state == TrafficLight.RED else -1
-            self.last_wp = light_wp
-            self.upcoming_red_light_pub.publish(Int32(light_wp))
+            intersection = intersection if state == TrafficLight.RED else None
+            self.last_intersection = intersection
+            if intersection is not None:
+                self.upcoming_red_light_pub.publish(intersection)
         else:
-            self.upcoming_red_light_pub.publish(Int32(self.last_wp))
+            if self.last_intersection is not None:
+                self.upcoming_red_light_pub.publish(self.last_intersection)
         self.state_count += 1
 
-    def get_closest_waypoint(self, pose):
+    def get_closest_waypoint(self, point):
         """Identifies the closest path waypoint to the given position
             https://en.wikipedia.org/wiki/Closest_pair_of_points_problem
         Args:
@@ -102,8 +109,8 @@ class TLDetector(object):
 
         """
   
-        car_x = pose.position.x
-        car_y = pose.position.y
+        car_x = point.x
+        car_y = point.y
 
         closest_distance = float('inf')
         closest_waypoint_index = None
@@ -190,48 +197,71 @@ class TLDetector(object):
         """
         light = None
 
-        # List of positions that correspond to the line to stop in front of for a given intersection
-        stop_line_positions = self.config['stop_line_positions']
-
-        # TODO (For Jared) make this only look for lights in front of you
         if not (self.pose and self.lights and self.waypoints):
-           return -1, TrafficLight.UNKNOWN
+           return None
+
+        car_x = self.pose.pose.position.x
+        car_y = self.pose.pose.position.y
 
         orientation_quaternion = tuple(getattr(self.pose.pose.orientation, i) for i in ('x', 'y', 'z', 'w'))
         _, _, theta = tf.transformations.euler_from_quaternion(orientation_quaternion)
-      
-        car_x = self.pose.pose.position.x
-        car_y = self.pose.pose.position.y
      
-        # Find closest light to the above waypoint
+        # List of positions that correspond to the line to stop in front of for a given intersection
+        stop_line_positions = self.config['stop_line_positions']
+
+        # Find closest stop line
+        closest_line = None
+        closest_line_distance = float('inf')
+        for line_x, line_y in stop_line_positions:
+            dist_x = car_x - line_x
+            dist_y = car_y - line_y
+            
+            distance = dist_x**2 + dist_y**2
+
+            dist_x_direct = -dist_x * math.cos(theta) - dist_y * math.sin(theta)
+            path_offset = -dist_x * math.sin(theta) + dist_y * math.cos(theta)
+
+            if dist_x_direct > 0 and abs(path_offset) < 100 and distance < closest_line_distance:
+                closest_line_distance = distance
+                closest_line = (line_x, line_y)
+        if closest_line is None:
+            return None
+
+        closest_line_position = Point()
+        closest_line_position.x, closest_line_position.y = closest_line
+        closest_line_wp = self.get_closest_waypoint(closest_line_position)
+
+        line_x, line_y = closest_line
+
+      
+        # Find closest light to the above line
         closest_light = None
         closest_light_distance = float('inf')
         for light in self.lights:
             light_x = light.pose.pose.position.x
             light_y = light.pose.pose.position.y
-            dist_x = car_x - light_x
-            dist_y = car_y - light_y
+            dist_x = line_x - light_x
+            dist_y = line_y - light_y
 
             distance = (dist_x)**2 + (dist_y)**2
-            
-            
-            dist_x_direct = -dist_x * math.cos(theta) - dist_y * math.sin(theta)
-            path_offset = -dist_x * math.sin(theta) + dist_y * math.cos(theta) 
           
-            if dist_x_direct > 0 and abs(path_offset) < 100 and distance < closest_light_distance:
+            if distance < closest_light_distance:
                 closest_light_distance = distance
                 closest_light = light
 
-
-
-        if closest_light is None:
-            return -1, TrafficLight.UNKNOWN
-
         # Find closest waypoint to the above light
-        light_wp_index = self.get_closest_waypoint(closest_light.pose.pose)            
+        light_wp_index = self.get_closest_waypoint(closest_light.pose.pose.position)            
 
         light_state = self.get_light_state(light)
-        return light_wp_index, light_state
+
+        # Build the Intersection for return
+        intersection = Intersection()
+        intersection.next_light = closest_light
+        intersection.stop_line_waypoint = closest_line_wp
+        intersection.next_light_waypoint = light_wp_index
+        intersection.next_light_detection = light_state
+
+        return intersection
 
 if __name__ == '__main__':
     try:
