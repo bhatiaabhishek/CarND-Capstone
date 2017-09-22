@@ -16,13 +16,14 @@ GAIN = 0.001
 
 
 class Controller(object):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, ego, **kwargs):
+        self.ego = ego
         self.throttle_pid = pid.PID(THROTTLE_P_VAL, THROTTLE_I_VAL,
                                     THROTTLE_D_VAL, mn=MIN_LINEAR_VELOCITY,
                                     mx=MAX_LINEAR_VELOCITY)
 
         self.lowpass_steering = lowpass.LowPassFilter(CUTOFF, GAIN)
-        self.yaw_controller = yaw_controller.YawController(*args)
+        self.yaw_controller = yaw_controller.YawController(self.ego.wheel_base, self.ego.steer_ratio, self.ego.min_speed, self.ego.max_lat_accel, self.ego.max_steer_angle)
 
     def control(self, target_linear_velocity, target_angular_velocity, 
                 current_linear_velocity, current_angular_velocity,

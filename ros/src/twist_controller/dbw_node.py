@@ -32,6 +32,10 @@ that we have created in the `__init__` function.
 '''
 SAMPLE_RATE = 50
 
+class Ego(object):
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
 class DBWNode(object):
     def __init__(self):
         rospy.init_node('dbw_node')
@@ -46,6 +50,16 @@ class DBWNode(object):
         steer_ratio = rospy.get_param('~steer_ratio', 14.8)
         max_lat_accel = rospy.get_param('~max_lat_accel', 3.)
         max_steer_angle = rospy.get_param('~max_steer_angle', 8.)
+        min_speed = 0.
+
+        params = {'vehicle_mass': vehicle_mass, 'fuel_capacity': fuel_capacity,
+                  'brake_deadband': brake_deadband, 'decel_limit':decel_limit,
+                  'accel_limit': accel_limit, 'wheel_radius': wheel_radius,
+                  'wheel_base': wheel_base, 'steer_ratio': steer_ratio,
+                  'max_lat_accel': max_lat_accel, 'max_steer_angle': max_steer_angle,
+                  'min_speed': min_speed}
+
+        ego = Ego(**params)
 
         self.steer_pub = rospy.Publisher('/vehicle/steering_cmd',
                                          SteeringCmd, queue_size=1)
@@ -54,8 +68,7 @@ class DBWNode(object):
         self.brake_pub = rospy.Publisher('/vehicle/brake_cmd',
                                          BrakeCmd, queue_size=1)
 
-        min_speed = 0.
-        self.controller = Controller(wheel_base, steer_ratio, min_speed, max_lat_accel, max_steer_angle)
+        self.controller = Controller(ego)
 
         rospy.Subscriber('/vehicle/dbw_enabled', Bool, self.dbw_enabled_cb)
         rospy.Subscriber('/current_velocity', TwistStamped, self.current_velocity_cb)
