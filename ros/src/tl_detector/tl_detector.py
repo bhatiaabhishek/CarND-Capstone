@@ -51,6 +51,10 @@ class TLDetector(object):
         self.last_intersection = None
         self.state_count = 0
 
+        self.intersection_info = None
+        self.previous_light_wp = -1
+        self.previous_light_detection = -1
+
         rospy.spin()
 
     def pose_cb(self, msg):
@@ -72,10 +76,9 @@ class TLDetector(object):
         """
         self.has_image = True
         self.camera_image = msg
-        intersection = self.process_traffic_lights()
+        light_wp, intersection = self.process_traffic_lights()
         if intersection is None:
             return
-        state = intersection.next_light_detection
 
         '''
         Publish upcoming red lights at camera frequency.
@@ -83,20 +86,10 @@ class TLDetector(object):
         of times till we start using it. Otherwise the previous stable state is
         used.
         '''
-        if self.state != state:
-            self.state_count = 0
-            self.state = state
-            self.intersection = intersection
-        elif self.state_count >= STATE_COUNT_THRESHOLD:
-            self.last_state = self.state
-            intersection = intersection if state == TrafficLight.RED else None
-            self.last_intersection = intersection
-            if intersection is not None:
-                self.upcoming_red_light_pub.publish(intersection)
-        else:
-            if self.last_intersection is not None:
-                self.upcoming_red_light_pub.publish(self.last_intersection)
-        self.state_count += 1
+        if light_wp != self.previous_light_wp or intersection.next_light_detection != self.previous_light_detection:
+            self.upcoming_red_light_pub.publish(intersection)
+            self.previous_light_wp = light_wp
+            self.previous_light_detection = intersection.next_light_detection
 
     def get_closest_waypoint(self, point):
         """Identifies the closest path waypoint to the given position
@@ -186,6 +179,64 @@ class TLDetector(object):
         classification = self.light_classifier.get_classification(cv_image)
         return classification
 
+    def process_intersections(self):
+        """
+        Sets self.intersection_info to a dictionary where the key
+        is the index of the waypoint closest to a light, and the dictionary
+        contains {'light': light,
+                  'line': line,
+                  'light_wp': light_wp,
+                  'line_wp': line_wp}
+        """
+
+        # Get the closest waypoint to each light and stop line
+        closest_light_wps = {light: (None, float('inf')) for light in self.lights}
+        closest_line_wps = {tuple(line): (None, float('inf')) for line in self.config['stop_line_positions']}
+        for wp_i, waypoint in enumerate(self.waypoints.waypoints):
+            wp_x = waypoint.pose.pose.position.x
+            wp_y = waypoint.pose.pose.position.y
+            for light in closest_light_wps:
+                light_x = light.pose.pose.position.x
+                light_y = light.pose.pose.position.y
+                wp_distance = (light_x - wp_x)**2 + (light_y - wp_y)**2
+               
+                closest_wp, closest_distance = closest_light_wps[light]
+                if wp_distance < closest_distance:
+                    closest_light_wps[light] = (wp_i, wp_distance)
+            
+            for line in closest_line_wps:
+                line_x, line_y = line
+                wp_distance = (line_x - wp_x)**2 + (line_y - wp_y)**2
+                
+                closest_wp, closest_distance = closest_line_wps[line]
+                if wp_distance < closest_distance:
+                    closest_line_wps[line] = (wp_i, wp_distance)
+
+        # Now that we have the closest waypoint to each light and line,
+        # pair lines with lights
+
+        intersection_info = {}
+        for light in closest_light_wps:
+            light_x = light.pose.pose.position.x
+            light_y = light.pose.pose.position.y
+            
+            closest_line = None
+            closest_line_distance = float('inf')
+            for line in closest_line_wps:
+                line_x, line_y = line
+                line_distance = (light_x - line_x)**2 + (light_y - line_y)**2
+                
+                if line_distance < closest_line_distance:
+                    closest_line = line
+                    closest_line_distance = line_distance
+            
+            light_wp = closest_light_wps[light][0]
+            line_wp = closest_line_wps[closest_line][0]
+            intersection_info[light_wp] = {'light': light, 'line': closest_line, 'light_wp': light_wp, 'line_wp': line_wp}
+
+        self.intersection_info = intersection_info
+            
+                
     def process_traffic_lights(self):
         """Finds closest visible traffic light, if one exists, and determines its
             location and color
@@ -198,70 +249,40 @@ class TLDetector(object):
         light = None
 
         if not (self.pose and self.lights and self.waypoints):
-           return None
+           return None, None
 
-        car_x = self.pose.pose.position.x
-        car_y = self.pose.pose.position.y
-
-        orientation_quaternion = tuple(getattr(self.pose.pose.orientation, i) for i in ('x', 'y', 'z', 'w'))
-        _, _, theta = tf.transformations.euler_from_quaternion(orientation_quaternion)
-     
-        # List of positions that correspond to the line to stop in front of for a given intersection
-        stop_line_positions = self.config['stop_line_positions']
-
-        # Find closest stop line
-        closest_line = None
-        closest_line_distance = float('inf')
-        for line_x, line_y in stop_line_positions:
-            dist_x = car_x - line_x
-            dist_y = car_y - line_y
-            
-            distance = dist_x**2 + dist_y**2
-
-            dist_x_direct = -dist_x * math.cos(theta) - dist_y * math.sin(theta)
-            path_offset = -dist_x * math.sin(theta) + dist_y * math.cos(theta)
-
-            if dist_x_direct > 0 and abs(path_offset) < 100 and distance < closest_line_distance:
-                closest_line_distance = distance
-                closest_line = (line_x, line_y)
-        if closest_line is None:
-            return None
-
-        closest_line_position = Point()
-        closest_line_position.x, closest_line_position.y = closest_line
-        closest_line_wp = self.get_closest_waypoint(closest_line_position)
-
-        line_x, line_y = closest_line
-
-      
-        # Find closest light to the above line
-        closest_light = None
-        closest_light_distance = float('inf')
-        for light in self.lights:
-            light_x = light.pose.pose.position.x
-            light_y = light.pose.pose.position.y
-            dist_x = line_x - light_x
-            dist_y = line_y - light_y
-
-            distance = (dist_x)**2 + (dist_y)**2
-          
-            if distance < closest_light_distance:
-                closest_light_distance = distance
-                closest_light = light
+        if self.intersection_info is None:
+            self.process_intersections()
 
         # Find closest waypoint to the above light
-        light_wp_index = self.get_closest_waypoint(closest_light.pose.pose.position)            
+        closest_wp = self.get_closest_waypoint(self.pose.pose.position)            
 
-        light_state = self.get_light_state(light)
+        next_light_wp = closest_wp
+        while next_light_wp not in self.intersection_info:
+            next_light_wp += 1
+            next_light_wp = next_light_wp % len(self.waypoints.waypoints)
+
+        next_intersection = self.intersection_info[next_light_wp]
+
+        light_state = self.get_light_state(next_intersection['light'])
+
+        # If the light is not red
+        if light_state == TrafficLight.GREEN:
+            light_state = TrafficLight.UNKNOWN
+            next_light_wp += 1
+            while next_light_wp not in self.intersection_info:
+                next_light_wp += 1
+                next_light_wp = next_light_wp % len(self.waypoints.waypoints)
+            next_intersection = self.intersection_info[next_light_wp]
 
         # Build the Intersection for return
         intersection = Intersection()
-        intersection.next_light = closest_light
-        intersection.stop_line_waypoint = closest_line_wp
-        intersection.next_light_waypoint = light_wp_index
+        intersection.next_light = next_intersection['light']
+        intersection.stop_line_waypoint = next_intersection['line_wp']
+        intersection.next_light_waypoint = next_intersection['light_wp']
         intersection.next_light_detection = light_state
 
-        return intersection
+        return next_intersection['light_wp'], intersection
 
 if __name__ == '__main__':
     try:
