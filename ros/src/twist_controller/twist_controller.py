@@ -38,7 +38,7 @@ class Controller(object):
             if velocity_error >= 0.:
                 throttle = velocity_cmd
             elif velocity_error <= -self.ego.brake_deadband:
-                brake = -velocity_cmd * self.ego.vehicle_mass * self.ego.wheel_radius
+                brake = -100 * velocity_cmd * self.ego.vehicle_mass * self.ego.wheel_radius
         else:
             self.throttle_pid.reset()
 
