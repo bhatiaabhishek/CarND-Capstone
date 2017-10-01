@@ -24,7 +24,7 @@ as well as to verify your TL classifier.
 TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 '''
 
-LOOKAHEAD_WPS = 100 # Number of waypoints we will publish. You can change this number
+LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
 
 TARGET_SPEED = 5.0
 SAMPLE_RATE = 100
@@ -55,7 +55,7 @@ class WaypointUpdater(object):
         self.first_waypoint = None
         self.base_waypoints = None
         self.base_waypoints_np = None
-        self.update_intr = 0
+        self.update_tl = False
 
 
         self.tl_list = None # list of all traffic lights
@@ -67,18 +67,8 @@ class WaypointUpdater(object):
 
         self.target_velo = TARGET_SPEED
 
-        self.time_out()
-
         rospy.spin()
 
-
-    def time_out(self):
-
-        rate = rospy.Rate(SAMPLE_RATE)
-        while not rospy.is_shutdown():
-            self.update_intr = 1
-
-            rate.sleep()
 
     def pose_cb(self, msg):
         self.car_x = msg.pose.position.x
@@ -106,7 +96,7 @@ class WaypointUpdater(object):
         car_velocity = self.car_velo
         target_velocity = self.target_velo
         rospy.loginfo("Current car velo = %s", car_velocity)
-        if self.update_intr == 1 or (closestWaypoint != self.first_waypoint):
+        if (self.update_tl or (closestWaypoint != self.first_waypoint)):
             #updating final_waypoints
             rospy.loginfo("updating waypoints")
             rospy.loginfo("publishing velocity %s", target_velocity)
@@ -131,7 +121,7 @@ class WaypointUpdater(object):
 
             #if ENABLE_TL: final_waypoints_msg = self.calc_tl(final_waypoints_msg, closestWaypoint)
             self.final_waypoints_pub.publish(final_waypoints_msg)
-            self.update_intr = 0
+            self.update_tl = False
 
     def waypoints_cb(self, msg):
         #updating base_waypoints
@@ -230,13 +220,14 @@ class WaypointUpdater(object):
                 rospy.loginfo("closest visible tl at %s distance", dist)
                 # Our traffic_waypoint publishes only when the next light is red/orange or unknown.
                 if dist < 35 and dist > 18: ### STOP!!!
-                    self.update_intr = 1
+                    self.update_tl = True
                     self.target_velo = 0.0
                 #elif dist < 40 and dist > 34:
                 #    #self.update_intr = 1
                 #    self.target_velo = 1.8
                 else: ## FULL THROTTLE!!
                     self.target_velo = TARGET_SPEED
+                    self.update_tl = True
                     #rospy.loginfo("Setting velo to %s",self.target_velo)
             #rate.sleep()
 
