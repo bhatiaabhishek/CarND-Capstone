@@ -54,7 +54,7 @@ class WaypointUpdater(object):
         self.car_closest_wp = None
         self.first_waypoint = 0
         self.base_waypoints = None
-        self.base_waypoints_np = None
+        #self.base_waypoints_np = None
         #self.update_tl = False
 
 
@@ -129,8 +129,8 @@ class WaypointUpdater(object):
             rospy.loginfo("rcvd base waypoints")
             self.base_waypoints = msg.waypoints
             #creating numpy arrya which contains only x & y coordinates
-            self.base_waypoints_np = np.array([[msg.waypoints[j].pose.pose.position.x, msg.waypoints[j].pose.pose.position.y] for j in range(len(msg.waypoints))])
-            self.base_wp_sub.unregister()
+            #self.base_waypoints_np = np.array([[msg.waypoints[j].pose.pose.position.x, msg.waypoints[j].pose.pose.position.y] for j in range(len(msg.waypoints))])
+            #self.base_wp_sub.unregister()
 
     def traffic_waypoint_cb(self,msg):
          self.tl_X = msg.next_light.pose.pose.position.x
