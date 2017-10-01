@@ -66,14 +66,14 @@ class WaypointUpdater(object):
         self.tl_list = []
 
         self.target_velo = TARGET_SPEED
-        
+
         self.time_out()
 
         rospy.spin()
 
 
     def time_out(self):
-        
+
         rate = rospy.Rate(SAMPLE_RATE)
         while not rospy.is_shutdown():
             self.update_intr = 1
@@ -122,7 +122,10 @@ class WaypointUpdater(object):
                 #    new_final_wp.twist.twist.linear.x = 0.0
                 #    #rospy.loginfo("braking")
                 #else:
-                new_final_wp.twist.twist.linear.x = target_velocity #min(car_velocity + ((100*((target_velocity - car_velocity)/target_velocity)/LOOKAHEAD_WPS)*(i+1)),target_velocity)
+                if (target_velocity == 0):
+                    new_final_wp.twist.twist.linear.x = 0
+                else:
+                    new_final_wp.twist.twist.linear.x =  wp.twist.twist.linear.x #min(car_velocity + ((100*((target_velocity - car_velocity)/target_velocity)/LOOKAHEAD_WPS)*(i+1)),target_velocity)
                 #rospy.loginfo("velo %s = %s, car velo = %s",i,new_final_wp.twist.twist.linear.x, car_velocity)
                 final_waypoints_msg.waypoints.append(new_final_wp)
 
@@ -146,8 +149,8 @@ class WaypointUpdater(object):
          self.tl_wp = msg.next_light_waypoint
          self.tl_stop_wp = msg.stop_line_waypoint
          #self.check_tl()
-          
- 
+
+
     def traffic_cb(self, msg):
          #TODO: Callback for /traffic_waypoint message. Implement
         #updating traffic light waypoints
@@ -219,11 +222,11 @@ class WaypointUpdater(object):
         #rate = rospy.Rate(SAMPLE_RATE)
         #while not rospy.is_shutdown():
            if self.car_x is not None and self.tl_wp is not None:
-                closestWaypoint = self.tl_wp 
-                rospy.loginfo("tl_x = %s, tl_y = %s, state = %s, WP = %s", self.tl_X, self.tl_Y, self.tl_S, self.tl_wp) 
-                #rospy.loginfo("state = %s", self.tl_S) 
+                closestWaypoint = self.tl_wp
+                rospy.loginfo("tl_x = %s, tl_y = %s, state = %s, WP = %s", self.tl_X, self.tl_Y, self.tl_S, self.tl_wp)
+                #rospy.loginfo("state = %s", self.tl_S)
                 #rospy.loginfo("I am at X = %s, Y = %s", self.car_x, self.car_y)
-                dist = self.distance(self.base_waypoints, self.car_closest_wp, closestWaypoint)          
+                dist = self.distance(self.base_waypoints, self.car_closest_wp, closestWaypoint)
                 rospy.loginfo("closest visible tl at %s distance", dist)
                 # Our traffic_waypoint publishes only when the next light is red/orange or unknown.
                 if dist < 35 and dist > 18: ### STOP!!!
