@@ -77,6 +77,8 @@ class WaypointUpdater(object):
         self.car_x = msg.pose.position.x
         self.car_y = msg.pose.position.y
         self.car_pose = msg.pose
+        if self.base_waypoints is None:
+            return
         #need to know euler yaw angle for car orientation relative to waypoints
         #for quaternion transformation using https://answers.ros.org/question/69754/quaternion-transformations-in-python/
         quaternion = [msg.pose.orientation.x,
